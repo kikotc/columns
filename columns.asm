@@ -308,6 +308,9 @@ handle_input:
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
 
+## rotates the column
+#
+# overwrites: t3, t4, t5
 rotate_col:
     # loads the current colors
     lw $t3, curr_col_c0 
@@ -321,6 +324,9 @@ rotate_col:
     
     jr $ra
 
+## move the column left if possible
+#
+# overwrites: t3
 move_col_l:
     lw $t3, curr_col_x # load current coluumn x
     ble $t3, $zero, move_l_done # if current x <= 0, don't do anything
@@ -329,6 +335,9 @@ move_col_l:
     move_l_done:
         jr $ra
 
+## move the column right if possible
+#
+# overwrites: t3
 move_col_r:
     lw $t3, curr_col_x # load current coluumn x
     bge $t3, 5, move_r_done # if current x >= 5, don't do anything
@@ -337,15 +346,127 @@ move_col_r:
     move_r_done:
         jr $ra
 
+## move the column down if possible
+#
+# overwrites: a0, a1, t0, t1, t2, t3, t4, t5
 move_col_d:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
-    jal init_col
+    # load current column position
+    lw $t0, curr_col_x
+    lw $t1, curr_col_y
     
-    lw $ra, 0($sp) # pop $ra from the stack
-    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    addi $t2, $t1, 3 # t2 = pixel just below column
+    bge $t2, 13, col_land # land column if ground is reached
+    
+    # check color below column
+    move $a0, $t0
+    move $a1, $t2
+    jal board_get
+    bne $v0, $zero, col_land # land column if pixel below isnt black
+    
+    # else move down
+    addi $t1, $t1, 1
+    sw $t1, curr_col_y
+    j col_landed
+    
+    col_land:
+        # load gem colors
+        lw $t3, curr_col_c0
+        lw $t4, curr_col_c1
+        lw $t5, curr_col_c2
+        
+        # set first pixel
+        move $a0, $t0
+        move $a1, $t1
+        move $a2, $t4
+        jal  board_set
+        
+        # set second pixel
+        move $a0, $t0
+        addi $a1, $t1, 1
+        move $a2, $t4
+        jal  board_set
+        
+        # set third pixel
+        move $a0, $t0
+        addi $a1, $t1, 2
+        move $a2, $t4
+        jal  board_set
+        
+        jal  init_col
+    col_landed:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
+        
+
+## get the color and store in v0
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# 
+# overwrites: t0, t1
+board_get:
+    la $t0, board # get the address of the board
+    
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    lw $v0, 0($t0) # load color into v0
+    
     jr $ra
+
+## set a color
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# a2 = color
+#
+# overwrites: t0, t1
+board_set:
+    la $t0, board # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    sw $a2, 0($t0) # set color
+    
+    jr $ra
+    
+## draws the board
+#
+# overwrites: 
+draw_board:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    li $t1, 0 # y = 0
+    board_down_loop:
+        bge $t1, 14, rect_done # finish loop if current y >= 14
+        li $t0, 0
+        board_row_loop:
+            bge $t0, 6, rect_row_done # finish loop if current x >= 6
+            
+            # get the color
+            move $a0, $t0
+            move $a1, $t1
+            jal board_get
+            
+            move $t0, $v0
+            jal  draw_board_pixel
+            
+            addi $t0, $t0, 1 # add 1 to the current x
+            j rect_row_loop
+        board_row_done:
+            addi $t1, $t1, 1 # add 1 to the current y
+            j board_down_loop
+    board_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
 
 draw_screen:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
@@ -359,6 +480,7 @@ draw_screen:
     li $a3, 14
     jal draw_rectangle
     
+    jal draw_board
     jal draw_curr_col
     
     lw $ra, 0($sp) # pop $ra from the stack
