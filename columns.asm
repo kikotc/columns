@@ -594,6 +594,8 @@ main:
     li $a2, 16
     li $a3, 16
     jal draw_rectangle
+    
+    jal init_col
 
 game_loop:
     # 1a. Check if key has been pressed
