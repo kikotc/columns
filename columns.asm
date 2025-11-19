@@ -249,7 +249,7 @@ init_col:
 
 ## handles input and calls corresponding functions for each key
 #
-# overwrites: t0, t2, t2
+# overwrites: t0, t1, t2
 handle_input:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
@@ -312,10 +312,20 @@ rotate_col:
     jr $ra
 
 move_col_l:
-    jr $ra
+    lw $t3, curr_col_x # load current coluumn x
+    ble $t3, $zero, move_l_done # if current x <= 0, don't do anything
+    addi $t3, $t3, -1 # decrement current x
+    sw $t3, curr_col_x # store
+    move_l_done:
+        jr $ra
 
 move_col_r:
-    jr $ra
+    lw $t3, curr_col_x # load current coluumn x
+    bge $t3, 5, move_r_done # if current x >= 5, don't do anything
+    addi $t3, $t3, 1 # increment current x
+    sw $t3, curr_col_x # store
+    move_r_done:
+        jr $ra
 
 move_col_d:
     jr $ra
