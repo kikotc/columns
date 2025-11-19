@@ -358,12 +358,24 @@ move_col_d:
     lw $t1, curr_col_y
     
     addi $t2, $t1, 3 # t2 = pixel just below column
-    bge $t2, 13, col_land # land column if ground is reached
+    bge $t2, 14, col_land # land column if ground is reached
     
     # check color below column
     move $a0, $t0
     move $a1, $t2
+    
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $t1, 0($sp) # push $t1 onto the stack
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $t0, 0($sp) # push $t0 onto the stack
+    
     jal board_get
+    
+    lw $t0, 0($sp) # pop $t0 from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    lw $t1, 0($sp) # pop $t1 from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    
     bne $v0, $zero, col_land # land column if pixel below isnt black
     
     # else move down
@@ -380,7 +392,7 @@ move_col_d:
         # set first pixel
         move $a0, $t0
         move $a1, $t1
-        move $a2, $t4
+        move $a2, $t3
         jal  board_set
         
         # set second pixel
@@ -392,7 +404,7 @@ move_col_d:
         # set third pixel
         move $a0, $t0
         addi $a1, $t1, 2
-        move $a2, $t4
+        move $a2, $t5
         jal  board_set
         
         jal  init_col
@@ -445,21 +457,25 @@ draw_board:
     sw $ra, 0($sp) # push $ra onto the stack
     li $t1, 0 # y = 0
     board_down_loop:
-        bge $t1, 14, rect_done # finish loop if current y >= 14
+        bge $t1, 14, board_done # finish loop if current y >= 14
         li $t0, 0
         board_row_loop:
-            bge $t0, 6, rect_row_done # finish loop if current x >= 6
+            bge $t0, 6, board_row_done # finish loop if current x >= 6
             
             # get the color
             move $a0, $t0
             move $a1, $t1
             jal board_get
             
+            addi $sp, $sp, -4 # move the stack pointer to an empty location
+            sw $t0, 0($sp) # push $t0 onto the stack
             move $t0, $v0
             jal  draw_board_pixel
+            lw $t0, 0($sp) # pop $t0 from the stack
+            addi $sp, $sp, 4 # move the stack pointer to the top stack element
             
             addi $t0, $t0, 1 # add 1 to the current x
-            j rect_row_loop
+            j board_row_loop
         board_row_done:
             addi $t1, $t1, 1 # add 1 to the current y
             j board_down_loop
