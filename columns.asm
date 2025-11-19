@@ -309,6 +309,16 @@ handle_input:
         jr $ra
 
 rotate_col:
+    # loads the current colors
+    lw $t3, curr_col_c0 
+    lw $t4, curr_col_c1
+    lw $t5, curr_col_c2
+    
+    # shift and store
+    sw $t5, curr_col_c0
+    sw $t3, curr_col_c1
+    sw $t4, curr_col_c2
+    
     jr $ra
 
 move_col_l:
@@ -328,6 +338,13 @@ move_col_r:
         jr $ra
 
 move_col_d:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    jal init_col
+    
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
 
 draw_screen:
