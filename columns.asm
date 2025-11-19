@@ -193,12 +193,22 @@ draw_curr_col:
 
 ## initialize the column by setting position and randomizing colors
 #
-# overwrites: v0, a0, a1, t1
+# overwrites: v0, a0, a1, t0, t1, t2
 init_col:
-    li $t1, 3
-    sw $t1, curr_col_x
-    li $t1, 0
-    sw $t1, curr_col_y
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    # set starting position
+    li $t2, 3
+    sw $t2, curr_col_x
+    li $t2, 0
+    sw $t2, curr_col_y
+    
+    # check if no space to place column
+    li $a0, 3
+    li $a1, 2
+    jal board_get
+    bne $v0, $zero, game_over
     
     # randomize color 1
     li $v0, 42
@@ -207,10 +217,10 @@ init_col:
     syscall 
     
     # get color 1
-    la $t1, colors_list
+    la $t2, colors_list
     sll $a0, $a0, 2
-    addu $t1, $t1, $a0
-    lw $a0, 0($t1)
+    addu $t2, $t2, $a0
+    lw $a0, 0($t2)
     
     # set color 1
     sw $a0, curr_col_c0
@@ -222,10 +232,10 @@ init_col:
     syscall 
     
     # get color 2
-    la $t1, colors_list
+    la $t2, colors_list
     sll $a0, $a0, 2
-    addu $t1, $t1, $a0
-    lw $a0, 0($t1)
+    addu $t2, $t2, $a0
+    lw $a0, 0($t2)
     
     # set color 2
     sw $a0, curr_col_c1
@@ -237,14 +247,16 @@ init_col:
     syscall 
     
     # get color 3
-    la $t1, colors_list
+    la $t2, colors_list
     sll $a0, $a0, 2
-    addu $t1, $t1, $a0
-    lw $a0, 0($t1)
+    addu $t2, $t2, $a0
+    lw $a0, 0($t2)
     
     # set color 3
     sw $a0, curr_col_c2
     
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
 
 ## handles input and calls corresponding functions for each key
@@ -326,61 +338,105 @@ rotate_col:
 
 ## move the column left if possible
 #
-# overwrites: t3
+# overwrites: t1, t2, t3, t4, t5
 move_col_l:
-    lw $t3, curr_col_x # load current coluumn x
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    lw $t3, curr_col_x # load current column x
+    lw $t4, curr_col_y # load current column y
+    addi $t5, $t3, -1 # t5 = new x
+    
     ble $t3, $zero, move_l_done # if current x <= 0, don't do anything
+    
+    # check first pixel on the left
+    move $a0, $t5
+    move $a1, $t4
+    jal board_get
+    bne $v0, $zero, move_l_done
+    
+    # check second pixel on the left
+    move $a0, $t5
+    addi $a1, $t4, 1
+    jal board_get
+    bne $v0, $zero, move_l_done
+    
+    # check third pixel on the left
+    move $a0, $t5
+    addi $a1, $t4, 2
+    jal board_get
+    bne $v0, $zero, move_l_done
+    
     addi $t3, $t3, -1 # decrement current x
     sw $t3, curr_col_x # store
     move_l_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
 
 ## move the column right if possible
 #
-# overwrites: t3
+# overwrites: t1, t2, t3, t4, t5
 move_col_r:
-    lw $t3, curr_col_x # load current coluumn x
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    lw $t3, curr_col_x # load current column x
+    lw $t4, curr_col_y # load current column y
+    addi $t5, $t3, 1 # t5 = new x
+    
     bge $t3, 5, move_r_done # if current x >= 5, don't do anything
+    
+    # check first pixel on the right
+    move $a0, $t5
+    move $a1, $t4
+    jal board_get
+    bne $v0, $zero, move_r_done
+    
+    # check second pixel on the right
+    move $a0, $t5
+    addi $a1, $t4, 1
+    jal board_get
+    bne $v0, $zero, move_r_done
+    
+    # check third pixel on the right
+    move $a0, $t5
+    addi $a1, $t4, 2
+    jal board_get
+    bne $v0, $zero, move_r_done
+    
     addi $t3, $t3, 1 # increment current x
     sw $t3, curr_col_x # store
     move_r_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
 
 ## move the column down if possible
 #
-# overwrites: a0, a1, t0, t1, t2, t3, t4, t5
+# overwrites: a0, a1, t0, t1, t2, t3, t4, t5, t6, t7
 move_col_d:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
     # load current column position
-    lw $t0, curr_col_x
-    lw $t1, curr_col_y
+    lw $t6, curr_col_x
+    lw $t7, curr_col_y
     
-    addi $t2, $t1, 3 # t2 = pixel just below column
+    addi $t2, $t7, 3 # t2 = pixel just below column
     bge $t2, 14, col_land # land column if ground is reached
     
     # check color below column
-    move $a0, $t0
+    move $a0, $t6
     move $a1, $t2
     
-    addi $sp, $sp, -4 # move the stack pointer to an empty location
-    sw $t1, 0($sp) # push $t1 onto the stack
-    addi $sp, $sp, -4 # move the stack pointer to an empty location
-    sw $t0, 0($sp) # push $t0 onto the stack
-    
     jal board_get
-    
-    lw $t0, 0($sp) # pop $t0 from the stack
-    addi $sp, $sp, 4 # move the stack pointer to the top stack element
-    lw $t1, 0($sp) # pop $t1 from the stack
-    addi $sp, $sp, 4 # move the stack pointer to the top stack element
     
     bne $v0, $zero, col_land # land column if pixel below isnt black
     
     # else move down
-    addi $t1, $t1, 1
-    sw $t1, curr_col_y
+    addi $t7, $t7, 1
+    sw $t7, curr_col_y
     j col_landed
     
     col_land:
@@ -390,20 +446,20 @@ move_col_d:
         lw $t5, curr_col_c2
         
         # set first pixel
-        move $a0, $t0
-        move $a1, $t1
+        move $a0, $t6
+        move $a1, $t7
         move $a2, $t3
         jal  board_set
         
         # set second pixel
-        move $a0, $t0
-        addi $a1, $t1, 1
+        move $a0, $t6
+        addi $a1, $t7, 1
         move $a2, $t4
         jal  board_set
         
         # set third pixel
-        move $a0, $t0
-        addi $a1, $t1, 2
+        move $a0, $t6
+        addi $a1, $t7, 2
         move $a2, $t5
         jal  board_set
         
@@ -465,12 +521,35 @@ draw_board:
             # get the color
             move $a0, $t0
             move $a1, $t1
+            
+            addi $sp, $sp, -4 # move the stack pointer to an empty location
+            sw $t1, 0($sp) # push $t1 onto the stack
+            addi $sp, $sp, -4 # move the stack pointer to an empty location
+            sw $t0, 0($sp) # push $t0 onto the stack
+            
             jal board_get
+            
+            lw $t0, 0($sp) # pop $t0 from the stack
+            addi $sp, $sp, 4 # move the stack pointer to the top stack element
+            lw $t1, 0($sp) # pop $t1 from the stack
+            addi $sp, $sp, 4 # move the stack pointer to the top stack element
             
             addi $sp, $sp, -4 # move the stack pointer to an empty location
             sw $t0, 0($sp) # push $t0 onto the stack
             move $t0, $v0
+            
+            addi $sp, $sp, -4 # move the stack pointer to an empty location
+            sw $t1, 0($sp) # push $t1 onto the stack
+            addi $sp, $sp, -4 # move the stack pointer to an empty location
+            sw $t2, 0($sp) # push $t2 onto the stack
+            
             jal  draw_board_pixel
+            
+            lw $t2, 0($sp) # pop $t2 from the stack
+            addi $sp, $sp, 4 # move the stack pointer to the top stack element
+            lw $t1, 0($sp) # pop $t1 from the stack
+            addi $sp, $sp, 4 # move the stack pointer to the top stack element
+            
             lw $t0, 0($sp) # pop $t0 from the stack
             addi $sp, $sp, 4 # move the stack pointer to the top stack element
             
@@ -503,6 +582,10 @@ draw_screen:
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
     
+game_over:
+    li $v0, 10
+    syscall
+
 main:
     # set background to brown
     li $t0, BROWN
