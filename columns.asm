@@ -60,6 +60,7 @@ curr_col_c2: .word BLUE
 
 # board
 board: .word 0:84
+clear: .word 0:84 # marks whether to clear (1) or not (0) a specific pixel
 
 ##############################################################################
 # Mutable Data
@@ -449,33 +450,153 @@ move_col_d:
         move $a0, $t6
         move $a1, $t7
         move $a2, $t3
-        jal  board_set
+        jal board_set
         
         # set second pixel
         move $a0, $t6
         addi $a1, $t7, 1
         move $a2, $t4
-        jal  board_set
+        jal board_set
         
         # set third pixel
         move $a0, $t6
         addi $a1, $t7, 2
         move $a2, $t5
-        jal  board_set
+        jal board_set
         
-        jal  init_col
+        jal clear_multiple_matches
+        
+        jal init_col
     col_landed:
         lw $ra, 0($sp) # pop $ra from the stack
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
-        
+      
+## loops clear matches and gravity until no more matches to clear
+# 
+# overwrites: ..
+clear_multiple_matches:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    clear_loop:
+        jal write_clear_matches # write down the immediate matches
+        jal clear_matches # clear the matches
+        beq $v1, $zero, clear_loop_done # if no matches found (indicated by v1), then finish
+        jal gravity # apply gravity
+        j clear_loop # loop
+    clear_loop_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
+    
+## clear the immediate matches and set v1 = 1 if pixel clearned
+# 
+# overwrites: t0, t1, t2, t3, t4, a0, a1, v0
+write_clear_matches:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    move $v1, $zero # set v1 = 0 (no pixel cleared)
+    li $t3, 0 # y = 0
+    write_down_loop:
+        bge $t3, 14, write_done # finish loop if current y >= 14
+        li $t2, 0 # x = 0
+        write_row_loop:
+            bge $t2, 6, write_row_done # finish loop if current x >= 6
+            
+            move $a0, $t2
+            move $a1, $t3
+            
+            jal board_get # v0 = color of current pixel
+            move $t4, $v0 # t4 = color of current pixel
+            beq $t4, 0, left_down_loop_done
+            
+            move $a0, $t2 # a0 = x in the loop
+            move $a1, $t3 # a1 = y in the loop
+            right_loop:
+            beq $a0, 5, right_loop_done # don't check right if x = 5
+            
+            addi $a0, $a0, 1
+            
+            jal board_get # v0 = color of current pixel
+            bne $t4, $v0, right_loop_done # finish loop if next pixel doesn't equal to current pixel
+            
+            # else:
+            addi $a0, $a0, -1
+            jal clear_set # set curr pixel to clear
+            addi $a0, $a0, 1
+            jal clear_set # set next pixel to clear
+            li $v1, 1 # set v1 = 1 to indicate something has been cleared
+            
+            j right_loop
+            right_loop_done:
+            
+            move $a0, $t2 # a0 = x in the loop
+            move $a1, $t3 # a1 = y in the loop
+            right_down_loop:
+            
+            left_down_loop_done:
+            
+            addi $t2, $t2, 1 # add 1 to the current x
+            j write_row_loop
+        write_row_done:
+            addi $t3, $t3, 1 # add 1 to the current y
+            j write_down_loop
+    write_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
 
+## clear the matches as stated in clear and reset clear
+#
+# overwrites: t0, t1, t2, t3, t4, t5, a0, a1, a2
+clear_matches:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    la $t4, board
+    la $t5, clear
+    li $a2, BLACK
+    
+    li $t3, 0 # y = 0
+    clear_down_loop:
+        bge $t3, 14, clear_done # finish loop if current y >= 14
+        li $t2, 0 # x = 0
+        clear_row_loop:
+            bge $t2, 6, clear_row_done # finish loop if current x >= 6
+    
+            move $a0, $t2 # set a0 = curr x
+            move $a1, $t3 # set a1 = curr y
+            jal clear_get # get clear value
+            beq $v0, 0, clear_pixel_done # if not clear, skip pixel
+            clear_pixel: # else clear pixel and reset clear value
+            jal board_set
+            jal clear_reset
+            clear_pixel_done:
+            
+            addi $t2, $t2, 1 # add 1 to the current x
+            j clear_row_loop
+        clear_row_done:
+            addi $t3, $t3, 1 # add 1 to the current y
+            j clear_down_loop
+    clear_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
+    
+
+## apply gravity
+# 
+# overwrites: 
+gravity:
+    jr $ra
+    
 ## get the color and store in v0
 #
 # a0 = x coodinate relative to board
 # a1 = y coodinate relative to board
 # 
-# overwrites: t0, t1
+# overwrites: t0, t1, v0
 board_get:
     la $t0, board # get the address of the board
     
@@ -504,59 +625,81 @@ board_set:
     sw $a2, 0($t0) # set color
     
     jr $ra
+
+## get whether to clear pixel and store in v0
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# 
+# overwrites: t0, t1, v0
+clear_get:
+    la $t0, clear # get the address of the board
+    
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    lw $v0, 0($t0) # load number
+    
+    jr $ra
+
+## set the pixel to clear
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+#
+# overwrites: t0, t1
+clear_set:
+    la $t0, clear # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    li $t1, 1
+    sw $t1, 0($t0) # set pixel to 1 (clear)
+    
+    jr $ra
+    
+clear_reset:
+    la $t0, clear # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    li $t1, 0
+    sw $t1, 0($t0) # set pixel to 1 (clear)
+    
+    jr $ra
     
 ## draws the board
 #
-# overwrites: 
+# overwrites: t0, t1, t2, t3...
 draw_board:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
-    li $t1, 0 # y = 0
+    li $t4, 0 # y = 0
     board_down_loop:
-        bge $t1, 14, board_done # finish loop if current y >= 14
-        li $t0, 0
+        bge $t4, 14, board_done # finish loop if current y >= 14
+        li $t3, 0 # x = 0
         board_row_loop:
-            bge $t0, 6, board_row_done # finish loop if current x >= 6
+            bge $t3, 6, board_row_done # finish loop if current x >= 6
             
             # get the color
-            move $a0, $t0
-            move $a1, $t1
-            
-            addi $sp, $sp, -4 # move the stack pointer to an empty location
-            sw $t1, 0($sp) # push $t1 onto the stack
-            addi $sp, $sp, -4 # move the stack pointer to an empty location
-            sw $t0, 0($sp) # push $t0 onto the stack
+            move $a0, $t3
+            move $a1, $t4
             
             jal board_get
             
-            lw $t0, 0($sp) # pop $t0 from the stack
-            addi $sp, $sp, 4 # move the stack pointer to the top stack element
-            lw $t1, 0($sp) # pop $t1 from the stack
-            addi $sp, $sp, 4 # move the stack pointer to the top stack element
-            
-            addi $sp, $sp, -4 # move the stack pointer to an empty location
-            sw $t0, 0($sp) # push $t0 onto the stack
             move $t0, $v0
             
-            addi $sp, $sp, -4 # move the stack pointer to an empty location
-            sw $t1, 0($sp) # push $t1 onto the stack
-            addi $sp, $sp, -4 # move the stack pointer to an empty location
-            sw $t2, 0($sp) # push $t2 onto the stack
+            jal draw_board_pixel
             
-            jal  draw_board_pixel
-            
-            lw $t2, 0($sp) # pop $t2 from the stack
-            addi $sp, $sp, 4 # move the stack pointer to the top stack element
-            lw $t1, 0($sp) # pop $t1 from the stack
-            addi $sp, $sp, 4 # move the stack pointer to the top stack element
-            
-            lw $t0, 0($sp) # pop $t0 from the stack
-            addi $sp, $sp, 4 # move the stack pointer to the top stack element
-            
-            addi $t0, $t0, 1 # add 1 to the current x
+            addi $t3, $t3, 1 # add 1 to the current x
             j board_row_loop
         board_row_done:
-            addi $t1, $t1, 1 # add 1 to the current y
+            addi $t4, $t4, 1 # add 1 to the current y
             j board_down_loop
     board_done:
         lw $ra, 0($sp) # pop $ra from the stack
