@@ -57,6 +57,12 @@ next_col_c0: .word RED
 next_col_c1: .word GREEN
 next_col_c2: .word BLUE
 
+# saved column
+saved_col_c0: .word 0
+saved_col_c1: .word 0
+saved_col_c2: .word 0
+saved_exists: .word 0
+
 # keys
 .eqv KEY_A 0x61
 .eqv KEY_D 0x64
@@ -65,6 +71,7 @@ next_col_c2: .word BLUE
 .eqv KEY_Q 0x71
 .eqv KEY_P 0x70
 .eqv KEY_R 0x72
+.eqv KEY_E 0x65
 
 # board
 board: .word 0:84
@@ -84,29 +91,9 @@ paused: .word 0
 
 j main
 
-## reset the game state in order for retries
-#
-# overwrites: t0, t1, t2, t3, s0, s1, s2
-reset_game_state:
-    # clear board and clear
-    la $t1, board
-    la $t2, clear
-    li $t0, 84
-    clear_board_loop:
-        beq $t0, $zero, clear_board_done # finish when 84 pixels all cleared
-        sw $zero, 0($t1)
-        addi $t1, $t1, 4
-        sw $zero, 0($t2)
-        addi $t2, $t2, 4
-        addi $t0, $t0, -1
-        j clear_board_loop
-    clear_board_done:
-        li $s0, 0 # game timer
-        li $s1, 0 # time reduction timer
-        li $s2, 0 # time reduction
-        la $t3, paused
-        sw $zero, 0($t3)
-        jr $ra
+##############################################################################
+# Basic helpers
+##############################################################################
 
 ## draws a rectangle
 #
@@ -195,7 +182,244 @@ draw_board_pixel:
     addu $t2, $t1, $t2 # compute final address
     sw $t0, 0($t2)
     jr $ra
- 
+
+## get the color and store in v0
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# 
+# overwrites: t0, t1, v0
+board_get:
+    la $t0, board # get the address of the board
+    
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    lw $v0, 0($t0) # load color into v0
+    
+    jr $ra
+
+## set a color
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# a2 = color
+#
+# overwrites: t0, t1
+board_set:
+    la $t0, board # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    sw $a2, 0($t0) # set color
+    
+    jr $ra
+
+## get whether to clear pixel and store in v0
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+# 
+# overwrites: t0, t1, v0
+clear_get:
+    la $t0, clear # get the address of the board
+    
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    lw $v0, 0($t0) # load number
+    
+    jr $ra
+
+## set the pixel to clear
+#
+# a0 = x coodinate relative to board
+# a1 = y coodinate relative to board
+#
+# overwrites: t0, t1
+clear_set:
+    la $t0, clear # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    li $t1, 1
+    sw $t1, 0($t0) # set pixel to 1 (clear)
+    
+    jr $ra
+    
+## reset pixel in clear
+#
+# a0 = x coordinate relative to board
+# a1 = y coordinate relative to board
+# 
+# overwrites: t0, t1
+clear_reset:
+    la $t0, clear # get the address of the board
+
+    mul $t1, $a1, 6 # 6y
+    addu $t1, $t1, $a0 # 6y + x
+    sll $t1, $t1, 2 # multiply by 4 for the byte offset
+    addu $t0, $t0, $t1 # compute final address
+    li $t1, 0
+    sw $t1, 0($t0) # set pixel to 0 (clear)
+    
+    jr $ra
+
+## handles input and calls corresponding functions for each key
+#
+# overwrites: t0, t1, t2, t3, t4
+handle_input:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    lw $t0, ADDR_KBRD
+    lw $t1, 0($t0) # t1 = is key pressed
+    bne $t1, 1, input_done # if key not pressed, finish function
+    
+    lw $t2, 4($t0) # load second word from keyboard
+    
+    # check if p pressed
+    li $t1, KEY_P
+    beq $t1, $t2, input_P
+    
+    # if paused, skip all other keys
+    la $t3, paused
+    lw $t4, 0($t3)
+    bne $t4, $zero, input_done
+    
+    # check if e pressed
+    li $t1, KEY_E
+    beq $t1, $t2, input_E
+    
+    # check if w pressed
+    li $t1, KEY_W
+    beq $t1, $t2, input_W
+
+    # check if a pressed
+    li $t1, KEY_A
+    beq $t1, $t2, input_A
+
+    # check if s pressed
+    li $t1, KEY_S
+    beq $t1, $t2, input_S
+
+    # check if d pressed
+    li $t1, KEY_D
+    beq $t1, $t2, input_D
+
+    # check if q pressed
+    li $t1, KEY_Q
+    beq $t1, $t2, input_Q
+    
+    j input_done # if other keys are pressed
+    
+    input_P:
+        la $t3, paused # load address of paused
+        lw $t4, 0($t3) # load paused
+        nor $t4, $t4, $zero
+        sw $t4, 0($t3)
+        j input_done
+    
+    input_E:
+        jal save_col
+        j input_done
+    
+    input_W:
+        jal rotate_col
+        j input_done
+    
+    input_A:
+        jal move_col_l
+        j input_done
+    
+    input_S:
+        jal move_col_d
+        j input_done
+    
+    input_D:
+        jal move_col_r
+        j input_done
+    
+    # quit game
+    input_Q:
+        li $v0, 10
+        syscall
+    
+    input_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
+
+##############################################################################
+# Other helpers
+##############################################################################
+
+## reset the game state in order for retries
+#
+# overwrites: t0, t1, t2, t3, s0, s1, s2
+reset_game_state:
+    # clear board and clear
+    la $t1, board
+    la $t2, clear
+    li $t0, 84
+    clear_board_loop:
+        beq $t0, $zero, clear_board_done # finish when 84 pixels all cleared
+        sw $zero, 0($t1)
+        addi $t1, $t1, 4
+        sw $zero, 0($t2)
+        addi $t2, $t2, 4
+        addi $t0, $t0, -1
+        j clear_board_loop
+    clear_board_done:
+        li $s0, 0 # game timer
+        li $s1, 0 # time reduction timer
+        li $s2, 0 # time reduction
+        la $t3, paused # unpause
+        sw $zero, 0($t3)
+        la $t4, saved_exists # reset saved column - no saved column
+        sw $zero, 0($t4)
+        jr $ra
+
+## initialize the column by setting position and randomizing colors
+#
+# overwrites: v0, a0, a1, t0, t1, t2
+init_col:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    # set starting position
+    li $t2, 3
+    sw $t2, curr_col_x
+    li $t2, 0
+    sw $t2, curr_col_y
+    
+    # check if no space to place column
+    li $a0, 3
+    li $a1, 2
+    jal board_get
+    bne $v0, $zero, game_over
+    
+    # move next column to current
+    lw $t0, next_col_c0
+    sw $t0, curr_col_c0
+    lw $t0, next_col_c1
+    sw $t0, curr_col_c1
+    lw $t0, next_col_c2
+    sw $t0, curr_col_c2
+    
+    # generate new next column
+    jal randomize_next_col
+    
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    jr $ra
+    
 ## draws the current column
 #
 # overwrites: a0, a1, t0, t3, t4
@@ -256,40 +480,6 @@ draw_next_col:
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
 
-## initialize the column by setting position and randomizing colors
-#
-# overwrites: v0, a0, a1, t0, t1, t2
-init_col:
-    addi $sp, $sp, -4 # move the stack pointer to an empty location
-    sw $ra, 0($sp) # push $ra onto the stack
-    
-    # set starting position
-    li $t2, 3
-    sw $t2, curr_col_x
-    li $t2, 0
-    sw $t2, curr_col_y
-    
-    # check if no space to place column
-    li $a0, 3
-    li $a1, 2
-    jal board_get
-    bne $v0, $zero, game_over
-    
-    # move next column to current
-    lw $t0, next_col_c0
-    sw $t0, curr_col_c0
-    lw $t0, next_col_c1
-    sw $t0, curr_col_c1
-    lw $t0, next_col_c2
-    sw $t0, curr_col_c2
-    
-    # generate new next column
-    jal randomize_next_col
-    
-    lw $ra, 0($sp) # pop $ra from the stack
-    addi $sp, $sp, 4 # move the stack pointer to the top stack element
-    jr $ra
-
 ## randomize colors for the next column
 #
 # overwrites: v0, a0, a1, t0, t1, t2
@@ -341,79 +531,98 @@ randomize_next_col:
     
     jr $ra
 
-## handles input and calls corresponding functions for each key
+## save the curr column if e is pressed
 #
-# overwrites: t0, t1, t2, t3, t4
-handle_input:
+# overwrites: t0, t1, t2, t3
+save_col:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
-    lw $t0, ADDR_KBRD
-    lw $t1, 0($t0) # t1 = is key pressed
-    bne $t1, 1, input_done # if key not pressed, finish function
+    la $t0, saved_exists
+    lw $t1, 0($t0)
+    beq $t1, $zero, save_new # if no saved right now, go to save_new
     
-    lw $t2, 4($t0) # load second word from keyboard
+    # else:
     
-    # check if p pressed
-    li $t1, KEY_P
-    beq $t1, $t2, input_P
-    
-    # if paused, skip all other keys
-    la $t3, paused
-    lw $t4, 0($t3)
-    bne $t4, $zero, input_done
-    
-    # check if w pressed
-    li $t1, KEY_W
-    beq $t1, $t2, input_W
+    # swap c0
+    lw $t2, curr_col_c0
+    lw $t3, saved_col_c0
+    sw $t3, curr_col_c0
+    sw $t2, saved_col_c0
 
-    # check if a pressed
-    li $t1, KEY_A
-    beq $t1, $t2, input_A
+    # swap c1
+    lw $t2, curr_col_c1
+    lw $t3, saved_col_c1
+    sw $t3, curr_col_c1
+    sw $t2, saved_col_c1
 
-    # check if s pressed
-    li $t1, KEY_S
-    beq $t1, $t2, input_S
+    # swap c2
+    lw $t2, curr_col_c2
+    lw $t3, saved_col_c2
+    sw $t3, curr_col_c2
+    sw $t2, saved_col_c2
+    
+    j save_done
+    
+    save_new:
+        # save current column
+        lw $t2, curr_col_c0
+        sw $t2, saved_col_c0
+        lw $t2, curr_col_c1
+        sw $t2, saved_col_c1
+        lw $t2, curr_col_c2
+        sw $t2, saved_col_c2
+        
+        # set saved_exists to 1
+        li $t1, 1
+        sw $t1, 0($t0)
+        
+        jal init_col
+    
+    save_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
 
-    # check if d pressed
-    li $t1, KEY_D
-    beq $t1, $t2, input_D
-
-    # check if q pressed
-    li $t1, KEY_Q
-    beq $t1, $t2, input_Q
+## draws the save column
+#
+# overwrites: t0, t1, t2, t3, t4, a0, a1, a2, a3
+draw_saved_col:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
     
-    j input_done # if other keys are pressed
+    li $t0, BLACK
+    li $a0, 8
+    li $a1, 5
+    li $a2, 1
+    li $a3, 3
+    jal draw_rectangle
     
-    input_P:
-        la $t3, paused # load address of paused
-        lw $t4, 0($t3) # load paused
-        nor $t4, $t4, $zero
-        sw $t4, 0($t3)
-        j input_done
+    # don't draw if no saved column
+    la $t1, saved_exists
+    lw $t2, 0($t1)
+    beq $t2, $zero, draw_saved_done
     
-    input_W:
-        jal rotate_col
-        j input_done
+    li $t3, 8 # x position of preview
+    li $t4, 5 # y position of preview
+    move $a0, $t3
+    move $a1, $t4
     
-    input_A:
-        jal move_col_l
-        j input_done
+    # draw first pixel
+    lw $t0, saved_col_c0
+    jal draw_pixel
     
-    input_S:
-        jal move_col_d
-        j input_done
+    # draw second pixel
+    lw $t0, saved_col_c1
+    addi $a1, $a1, 1
+    jal draw_pixel
     
-    input_D:
-        jal move_col_r
-        j input_done
+    # draw second pixel
+    lw $t0, saved_col_c2
+    addi $a1, $a1, 1
+    jal draw_pixel
     
-    # quit game
-    input_Q:
-        li $v0, 10
-        syscall
-    
-    input_done:
+    draw_saved_done:
         lw $ra, 0($sp) # pop $ra from the stack
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
@@ -970,88 +1179,6 @@ gravity:
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
     
-## get the color and store in v0
-#
-# a0 = x coodinate relative to board
-# a1 = y coodinate relative to board
-# 
-# overwrites: t0, t1, v0
-board_get:
-    la $t0, board # get the address of the board
-    
-    mul $t1, $a1, 6 # 6y
-    addu $t1, $t1, $a0 # 6y + x
-    sll $t1, $t1, 2 # multiply by 4 for the byte offset
-    addu $t0, $t0, $t1 # compute final address
-    lw $v0, 0($t0) # load color into v0
-    
-    jr $ra
-
-## set a color
-#
-# a0 = x coodinate relative to board
-# a1 = y coodinate relative to board
-# a2 = color
-#
-# overwrites: t0, t1
-board_set:
-    la $t0, board # get the address of the board
-
-    mul $t1, $a1, 6 # 6y
-    addu $t1, $t1, $a0 # 6y + x
-    sll $t1, $t1, 2 # multiply by 4 for the byte offset
-    addu $t0, $t0, $t1 # compute final address
-    sw $a2, 0($t0) # set color
-    
-    jr $ra
-
-## get whether to clear pixel and store in v0
-#
-# a0 = x coodinate relative to board
-# a1 = y coodinate relative to board
-# 
-# overwrites: t0, t1, v0
-clear_get:
-    la $t0, clear # get the address of the board
-    
-    mul $t1, $a1, 6 # 6y
-    addu $t1, $t1, $a0 # 6y + x
-    sll $t1, $t1, 2 # multiply by 4 for the byte offset
-    addu $t0, $t0, $t1 # compute final address
-    lw $v0, 0($t0) # load number
-    
-    jr $ra
-
-## set the pixel to clear
-#
-# a0 = x coodinate relative to board
-# a1 = y coodinate relative to board
-#
-# overwrites: t0, t1
-clear_set:
-    la $t0, clear # get the address of the board
-
-    mul $t1, $a1, 6 # 6y
-    addu $t1, $t1, $a0 # 6y + x
-    sll $t1, $t1, 2 # multiply by 4 for the byte offset
-    addu $t0, $t0, $t1 # compute final address
-    li $t1, 1
-    sw $t1, 0($t0) # set pixel to 1 (clear)
-    
-    jr $ra
-    
-clear_reset:
-    la $t0, clear # get the address of the board
-
-    mul $t1, $a1, 6 # 6y
-    addu $t1, $t1, $a0 # 6y + x
-    sll $t1, $t1, 2 # multiply by 4 for the byte offset
-    addu $t0, $t0, $t1 # compute final address
-    li $t1, 0
-    sw $t1, 0($t0) # set pixel to 1 (clear)
-    
-    jr $ra
-    
 ## draws the board
 #
 # overwrites: t0, t1, t2, t3...
@@ -1098,6 +1225,7 @@ draw_screen:
     jal draw_board
     jal draw_curr_col
     jal draw_next_col
+    jal draw_saved_col
     
     lw $ra, 0($sp) # pop $ra from the stack
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
