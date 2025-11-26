@@ -61,6 +61,7 @@ curr_col_c2: .word BLUE
 # board
 board: .word 0:84
 clear: .word 0:84 # marks whether to clear (1) or not (0) a specific pixel
+temp_col: .word 0:14 # used to store columns when applying gravity
 
 ##############################################################################
 # Mutable Data
@@ -491,7 +492,7 @@ clear_multiple_matches:
     
 ## clear the immediate matches and set v1 = 1 if pixel clearned
 # 
-# overwrites: t0, t1, t2, t3, t4, a0, a1, v0
+# overwrites: t0, t1, t2, t3, t4, t5, a0, a1, v0
 write_clear_matches:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
@@ -509,33 +510,139 @@ write_clear_matches:
             
             jal board_get # v0 = color of current pixel
             move $t4, $v0 # t4 = color of current pixel
-            beq $t4, 0, left_down_loop_done
+            beq $t4, 0, left_down_done # skip all checks if current pixel is black
             
-            move $a0, $t2 # a0 = x in the loop
-            move $a1, $t3 # a1 = y in the loop
-            right_loop:
-            beq $a0, 5, right_loop_done # don't check right if x = 5
+                move $a0, $t2 # a0 = x in the loop
+                move $a1, $t3 # a1 = y in the loop
+                li $t5, 1 # match length
+                right_loop:
+                    beq $a0, 5, right_loop_done # don't check right if x = 5
+                    
+                    addi $a0, $a0, 1 # next pixel
+                    
+                    jal board_get # v0 = color of next pixel
+                    bne $t4, $v0, right_loop_done # finish loop if curr pixel doesn't equal to next pixel
+                    
+                    # else (match):
+                    addi $t5, $t5, 1 # add one to match length 
+                    
+                    j right_loop
+                right_loop_done:
+                    blt $t5, 3, right_done # if match length < 3, then finish this direction
+                
+                    # else (match length >= 3):
+                    li $v1, 1 # set v1 = 1 to indicate something has been cleared
+                    move $a0, $t2 # a0 = x
+                    move $a1, $t3 # a1 = y
+                    right_loop_write:
+                        beq $t5, 0, right_done
+                        jal clear_set
+                        
+                        addi $a0, $a0, 1
+                        addi $t5, $t5, -1
+                        j right_loop_write
+                    right_done:
+                
+                move $a0, $t2 # a0 = x in the loop
+                move $a1, $t3 # a1 = y in the loop
+                li $t5, 1 # match length
+                right_down_loop:
+                    beq $a0, 5, right_down_loop_done # don't check right if x = 5
+                    beq $a1, 13, right_down_loop_done # don't check right if y = 13
+                    
+                    # next pixel
+                    addi $a0, $a0, 1
+                    addi $a1, $a1, 1
+                    
+                    jal board_get # v0 = color of next pixel
+                    bne $t4, $v0, right_down_loop_done # finish loop if curr pixel doesn't equal to next pixel
+                    
+                    # else (match):
+                    addi $t5, $t5, 1 # add one to match length 
+                    
+                    j right_down_loop
+                right_down_loop_done:
+                    blt $t5, 3, right_down_done # if match length < 3, then finish this direction
+                
+                    # else (match length >= 3):
+                    li $v1, 1 # set v1 = 1 to indicate something has been cleared
+                    move $a0, $t2 # a0 = x
+                    move $a1, $t3 # a1 = y
+                    right_down_loop_write:
+                        beq $t5, 0, right_down_done
+                        jal clear_set
+                        
+                        addi $a0, $a0, 1
+                        addi $a1, $a1, 1
+                        addi $t5, $t5, -1
+                        j right_down_loop_write
+                    right_down_done:
+                
+                move $a0, $t2 # a0 = x in the loop
+                move $a1, $t3 # a1 = y in the loop
+                li $t5, 1 # match length
+                down_loop:
+                    beq $a1, 13, down_loop_done # don't check right if y = 13
+                    
+                    addi $a1, $a1, 1 # next pixel
+                    
+                    jal board_get # v0 = color of next pixel
+                    bne $t4, $v0, down_loop_done # finish loop if curr pixel doesn't equal to next pixel
+                    
+                    # else (match):
+                    addi $t5, $t5, 1 # add one to match length 
+                    
+                    j down_loop
+                down_loop_done:
+                    blt $t5, 3, down_done # if match length < 3, then finish this direction
+                
+                    # else (match length >= 3):
+                    li $v1, 1 # set v1 = 1 to indicate something has been cleared
+                    move $a0, $t2 # a0 = x
+                    move $a1, $t3 # a1 = y
+                    down_loop_write:
+                        beq $t5, 0, down_done
+                        jal clear_set
+                        
+                        addi $a1, $a1, 1
+                        addi $t5, $t5, -1
+                        j down_loop_write
+                    down_done:
             
-            addi $a0, $a0, 1
-            
-            jal board_get # v0 = color of current pixel
-            bne $t4, $v0, right_loop_done # finish loop if next pixel doesn't equal to current pixel
-            
-            # else:
-            addi $a0, $a0, -1
-            jal clear_set # set curr pixel to clear
-            addi $a0, $a0, 1
-            jal clear_set # set next pixel to clear
-            li $v1, 1 # set v1 = 1 to indicate something has been cleared
-            
-            j right_loop
-            right_loop_done:
-            
-            move $a0, $t2 # a0 = x in the loop
-            move $a1, $t3 # a1 = y in the loop
-            right_down_loop:
-            
-            left_down_loop_done:
+                move $a0, $t2 # a0 = x in the loop
+                move $a1, $t3 # a1 = y in the loop
+                li $t5, 1 # match length
+                left_down_loop:
+                    beq $a0, 0, left_down_loop_done # don't check right if x = 0
+                    beq $a1, 13, left_down_loop_done # don't check right if y = 13
+                    
+                    # next pixel
+                    addi $a0, $a0, -1
+                    addi $a1, $a1, 1
+                    
+                    jal board_get # v0 = color of next pixel
+                    bne $t4, $v0, left_down_loop_done # finish loop if curr pixel doesn't equal to next pixel
+                    
+                    # else (match):
+                    addi $t5, $t5, 1 # add one to match length 
+                    
+                    j left_down_loop
+                left_down_loop_done:
+                    blt $t5, 3, left_down_done # if match length < 3, then finish this direction
+                
+                    # else (match length >= 3):
+                    li $v1, 1 # set v1 = 1 to indicate something has been cleared
+                    move $a0, $t2 # a0 = x
+                    move $a1, $t3 # a1 = y
+                    left_down_loop_write:
+                        beq $t5, 0, left_down_done
+                        jal clear_set
+                        
+                        addi $a0, $a0, -1
+                        addi $a1, $a1, 1
+                        addi $t5, $t5, -1
+                        j left_down_loop_write
+                    left_down_done:
             
             addi $t2, $t2, 1 # add 1 to the current x
             j write_row_loop
@@ -587,9 +694,65 @@ clear_matches:
 
 ## apply gravity
 # 
-# overwrites: 
+# overwrites: t0, t1, t2, t3, v0, a0, a1, a2
 gravity:
-    jr $ra
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    li $t2, 0 # x = 0
+    gravity_col_loop:
+        bge $t2, 6, gravity_col_loop_done # finish loop if current x >= 6
+        li $t3, 13 # y = 13
+        col_read_loop:
+            blt $t3, 0, col_read_done # finish loop if current x < 0
+            
+            li $t5, 0
+            move $a0, $t2
+            move $a1, $t3
+            jal board_get
+            bne $v0, 0, shift_done # skip if pixel is not black (no need to apply gravity)
+            
+            # else
+            move $t4, $t3 # t4 = curr shift y
+            shift_down:
+                # finish shift loop when curr shift y <= 0
+                # (last value of y = 1 in order to check pixel above)
+                ble $t4, 0, clear_top
+                
+                # get color of pixel above (v0)
+                move $a0, $t2
+                addi $a1, $t4, -1
+                jal board_get
+                
+                beq $v0, 0, skip_marking
+                li $t5, 1
+                skip_marking:
+                # set the color (v0) it to current pixel
+                move $a1, $t4
+                move $a2, $v0
+                jal board_set
+                
+                addi $t4, $t4, -1 # subtract 1 to the curr shift y
+                j shift_down
+                clear_top:
+                    move $a1, $t4
+                    li $a2, 0
+                    jal board_set
+            shift_done:
+            move $a0, $t2
+            move $a1, $t3
+            jal board_get
+            beq $t5, 1, col_read_loop # shift again without subtracting curr y if pixels has been shifted
+            
+            addi $t3, $t3, -1 # subtract 1 to the current y
+            j col_read_loop
+        col_read_done:
+            addi $t2, $t2, 1 # add 1 to the current x
+            j gravity_col_loop
+    gravity_col_loop_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
     
 ## get the color and store in v0
 #
@@ -689,11 +852,9 @@ draw_board:
             # get the color
             move $a0, $t3
             move $a1, $t4
-            
             jal board_get
             
             move $t0, $v0
-            
             jal draw_board_pixel
             
             addi $t3, $t3, 1 # add 1 to the current x
