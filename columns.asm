@@ -59,11 +59,11 @@ curr_col_c2: .word BLUE
 .eqv KEY_W 0x77
 .eqv KEY_Q 0x71
 .eqv KEY_P 0x70
+.eqv KEY_R 0x72
 
 # board
 board: .word 0:84
 clear: .word 0:84 # marks whether to clear (1) or not (0) a specific pixel
-temp_col: .word 0:14 # used to store columns when applying gravity
 
 paused: .word 0
 
@@ -78,6 +78,26 @@ paused: .word 0
 	.globl main
 
 j main
+
+## reset the game state in order for retries
+reset_game_state:
+    # clear board and clear
+    la $t1, board
+    la $t2, clear
+    li $t0, 84
+    clear_board_loop:
+        beq $t0, $zero, clear_board_done # finish when 84 pixels all cleared
+        sw $zero, 0($t1)
+        addi $t1, $t1, 4
+        sw $zero, 0($t2)
+        addi $t2, $t2, 4
+        addi $t0 $t0, -1
+        j clear_board_loop
+    clear_board_done:
+        li $s0, 0 # game timer
+        li $s1, 0 # time reduction timer
+        li $s3, 0 # time reduction
+        jr $ra
 
 ## draws a rectangle
 #
@@ -1025,12 +1045,199 @@ draw_screen:
     lw $ra, 0($sp) # pop $ra from the stack
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
-    
+
+## draws the game over screen and reset if retry
+#
+# overwrites: t0, t1, t2, t3, a0, a1, a2, a3
 game_over:
-    li $v0, 10
-    syscall
+    jal game_over_animation
+    
+    # draw retry word
+    li $t0, BLACK
+    
+    # letter R
+    li $a0, 2
+    li $a1, 2
+    li $a2, 1
+    li $a3, 5
+    jal draw_rectangle
+    li $a0, 3
+    li $a1, 2
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 4
+    li $a1, 2
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    li $a0, 3
+    li $a1, 4
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 4
+    li $a1, 5
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    
+    # letter E
+    li $a0, 6
+    li $a1, 2
+    li $a2, 1
+    li $a3, 5
+    jal draw_rectangle
+    li $a0, 7
+    li $a1, 2
+    li $a2, 2
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 7
+    li $a1, 4
+    li $a2, 2
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 7
+    li $a1, 6
+    li $a2, 2
+    li $a3, 1
+    jal draw_rectangle
+    
+    # dash
+    li $a0, 10
+    li $a1, 4
+    li $a2, 3
+    li $a3, 1
+    jal draw_rectangle
+    
+    # letter T
+    li $a0, 0
+    li $a1, 9
+    li $a2, 3
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 1
+    li $a1, 10
+    li $a2, 1
+    li $a3, 4
+    jal draw_rectangle
+    
+    # letter R
+    li $a0, 4
+    li $a1, 9
+    li $a2, 1
+    li $a3, 5
+    jal draw_rectangle
+    li $a0, 5
+    li $a1, 9
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 6
+    li $a1, 9
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    li $a0, 5
+    li $a1, 11
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 6
+    li $a1, 12
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    
+    # letter Y
+    li $a0, 8
+    li $a1, 9
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    li $a0, 10
+    li $a1, 9
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    li $a0, 9
+    li $a1, 11
+    li $a2, 1
+    li $a3, 3
+    jal draw_rectangle
+    
+    # question mark
+    li $a0, 12
+    li $a1, 9
+    li $a2, 3
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 14
+    li $a1, 10
+    li $a2, 1
+    li $a3, 2
+    jal draw_rectangle
+    li $a0, 13
+    li $a1, 11
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    li $a0, 13
+    li $a1, 13
+    li $a2, 1
+    li $a3, 1
+    jal draw_rectangle
+    
+    check_retry:
+    lw $t3, ADDR_KBRD
+    lw $t1, 0($t3) # t1 = is key pressed
+    bne $t1, 1, check_retry # if key not pressed, check again
+    
+    lw $t2, 4($t3) # load second word from keyboard
+    
+    li $t1, KEY_R
+    bne $t1, $t2, check_retry # if key is not r, check again
+    
+    j main
+
+## animates the game over screen
+#
+# overwrites: t0, t3, t4, a0, a1
+game_over_animation:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    li $t4, 0 # y = 0
+    over_down_loop:
+        bge $t4, 16, over_done # finish loop if current y >= 16
+        li $t3, 0 # x = 0
+        over_row_loop:
+            bge $t3, 16, over_row_done # finish loop if current x >= 16
+            
+            li $t0, GRAY
+            move $a0, $t3
+            move $a1, $t4
+            jal draw_pixel
+            
+            # sleep
+        	li $v0, 32
+            li $a0, 16
+            syscall
+            
+            addi $t3, $t3, 1 # add 1 to the current x
+            j over_row_loop
+        over_row_done:
+            addi $t4, $t4, 1 # add 1 to the current y
+            j over_down_loop
+    over_done:
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
 
 main:
+    jal reset_game_state
+    
     # set background to brown
     li $t0, BROWN
     li $a0, 0
@@ -1041,10 +1248,6 @@ main:
     
     jal init_col
     
-    li $s0, 0 # game timer
-    li $s1, 0 # time reduction timer
-    li $s3, 0 # time reduction
-
 game_loop:
     # check and handle key press
     jal handle_input
