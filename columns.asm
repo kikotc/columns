@@ -716,14 +716,61 @@ write_clear_matches:
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
 
-## clear the matches as stated in clear and reset clear
+## clear the matches as stated in clear, then, reset clear
 #
 # overwrites: t0, t1, t2, t3, t4, t5, a0, a1, a2
 clear_matches:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
+    # animate clear
+    li $a2, WHITE
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
+    
+    li $a2, GRAY
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
+    
     li $a2, BLACK
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
+    
+    li $a2, GRAY
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
+    
+    li $a2, WHITE
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
+    
+    li $a2, GRAY
+    jal color_matches
+    
+    # sleep
+	li $v0, 32
+    li $a0, 48
+    syscall
     
     li $t3, 0 # y = 0
     clear_down_loop:
@@ -737,6 +784,7 @@ clear_matches:
             jal clear_get # get clear value
             beq $v0, 0, clear_pixel_done # if not clear, skip pixel
             clear_pixel: # else clear pixel and reset clear value
+            li $a2, BLACK
             jal board_set
             jal clear_reset
             clear_pixel_done:
@@ -750,7 +798,42 @@ clear_matches:
         lw $ra, 0($sp) # pop $ra from the stack
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
+
+## color the matches as stated in clear
+#
+# a2 = color
+#
+# overwrites: t0, t1, t2, t3, t4, t5, a0, a1
+color_matches:
+addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
     
+    li $t3, 0 # y = 0
+    color_down_loop:
+        bge $t3, 14, color_done # finish loop if current y >= 14
+        li $t2, 0 # x = 0
+        color_row_loop:
+            bge $t2, 6, color_row_done # finish loop if current x >= 6
+    
+            move $a0, $t2 # set a0 = curr x
+            move $a1, $t3 # set a1 = curr y
+            jal clear_get # get clear value
+            beq $v0, 0, color_pixel_done # if not clear, skip pixel
+            color_pixel: # else clear pixel and reset clear value
+            jal board_set
+            color_pixel_done:
+            
+            addi $t2, $t2, 1 # add 1 to the current x
+            j color_row_loop
+        color_row_done:
+            addi $t3, $t3, 1 # add 1 to the current y
+            j color_down_loop
+    color_done:
+        jal draw_board
+        
+        lw $ra, 0($sp) # pop $ra from the stack
+        addi $sp, $sp, 4 # move the stack pointer to the top stack element
+        jr $ra
 
 ## apply gravity
 # 
@@ -930,9 +1013,9 @@ draw_screen:
     
     # set background to brown
     li $t0, BROWN
-    li $a0, 0
+    li $a0, 7
     li $a1, 0
-    li $a2, 16
+    li $a2, 9
     li $a3, 16
     jal draw_rectangle
     
