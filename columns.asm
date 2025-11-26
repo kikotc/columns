@@ -626,14 +626,6 @@ draw_saved_col:
 ## draws the paused screen
 #
 # overwrites: t0, t1, t2, t3, t4, a0, a1, a2, a3
-
-## draws a rectangle
-#
-# t0 = the color of the rectangle
-# a0 = the x coordinate of the rectangle
-# a1 = the y coordinate of the rectangle
-# a2 = the width of the rectangle
-# a3 = the height of the rectangle
 draw_pause_screen:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
