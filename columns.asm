@@ -39,6 +39,7 @@ ADDR_KBRD:
 .eqv BLUE 0x0000ff
 .eqv PURPLE 0xa020f0
 .eqv BROWN 0x964b00
+.eqv GRAY 0x808080
 .eqv WHITE 0xffffff
 .eqv BLACK 0x000000
 colors_list:
@@ -57,11 +58,14 @@ curr_col_c2: .word BLUE
 .eqv KEY_S 0x73
 .eqv KEY_W 0x77
 .eqv KEY_Q 0x71
+.eqv KEY_P 0x70
 
 # board
 board: .word 0:84
 clear: .word 0:84 # marks whether to clear (1) or not (0) a specific pixel
 temp_col: .word 0:14 # used to store columns when applying gravity
+
+paused: .word 0
 
 ##############################################################################
 # Mutable Data
@@ -263,7 +267,7 @@ init_col:
 
 ## handles input and calls corresponding functions for each key
 #
-# overwrites: t0, t1, t2
+# overwrites: t0, t1, t2, t3, t4
 handle_input:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
@@ -273,6 +277,15 @@ handle_input:
     bne $t1, 1, input_done # if key not pressed, finish function
     
     lw $t2, 4($t0) # load second word from keyboard
+    
+    # check if p pressed
+    li $t1, KEY_P
+    beq $t1, $t2, input_P
+    
+    # if paused, skip all other keys
+    la $t3, paused
+    lw $t4, 0($t3)
+    bne $t4, $zero, input_done
     
     # check if w pressed
     li $t1, KEY_W
@@ -295,6 +308,13 @@ handle_input:
     beq $t1, $t2, input_Q
     
     j input_done # if other keys are pressed
+    
+    input_P:
+        la $t3, paused # load address of paused
+        lw $t4, 0($t3) # load paused
+        nor $t4, $t4, 0
+        sw $t4, 0($t3)
+        j input_done
     
     input_W:
         jal rotate_col
@@ -321,6 +341,48 @@ handle_input:
         lw $ra, 0($sp) # pop $ra from the stack
         addi $sp, $sp, 4 # move the stack pointer to the top stack element
         jr $ra
+
+## draws the paused screen
+#
+# overwrites: t0, t1, t2, t3, t4, a0, a1, a2, a3
+
+## draws a rectangle
+#
+# t0 = the color of the rectangle
+# a0 = the x coordinate of the rectangle
+# a1 = the y coordinate of the rectangle
+# a2 = the width of the rectangle
+# a3 = the height of the rectangle
+draw_pause_screen:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    # draw pause background
+    li $t0, BROWN
+    li $a0, 0
+    li $a1, 0
+    li $a2, 16
+    li $a3, 16
+    jal draw_rectangle
+    
+    # draw pause symbol
+    li $t0, BLACK
+    li $a0, 6
+    li $a1, 6
+    li $a2, 1
+    li $a3, 4
+    jal draw_rectangle
+    
+    li $t0, BLACK
+    li $a0, 9
+    li $a1, 6
+    li $a2, 1
+    li $a3, 4
+    jal draw_rectangle
+    
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    jr $ra
 
 ## rotates the column
 #
@@ -866,12 +928,12 @@ draw_screen:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
-    # draw board
-    li $t0, BLACK
-    li $a0, 1
-    li $a1, 1
-    li $a2, 6
-    li $a3, 14
+    # set background to brown
+    li $t0, BROWN
+    li $a0, 0
+    li $a1, 0
+    li $a2, 16
+    li $a3, 16
     jal draw_rectangle
     
     jal draw_board
@@ -901,37 +963,45 @@ main:
     li $s3, 0 # time reduction
 
 game_loop:
-    # 1a. Check if key has been pressed
-    # 1b. Check which key has been pressed
+    # check and handle key press
     jal handle_input
+ 
+    # check if paused
+    la $t0, paused
+    lw $t1, 0($t0)
+    bne $t1, $zero, game_paused
+    
     # auto gravity
     addi $s0, $s0, 1 # increment game timer
     addi $s1, $s1, 1 # increment time reduction timer
     blt $s1, 240, calc_down # if time reduction timer < 4 sec, move on
     
     # else:
-    li $s1, 0
-    ble $s3, -48, calc_down # don't reduce time past 0.2 seconds/down (1 - 0.8)
-    addi $s3, $s3, -1
-    
+        li $s1, 0
+        ble $s3, -48, calc_down # don't reduce time past 0.2 seconds/down (1 - 0.8)
+        addi $s3, $s3, -1
     calc_down:
-    addi $t9, $s3, 60 # t9 = 1 sec + time reduction (negative)
-    blt $s0, $t9, skip_down # if timer <= break, no down movement
+        addi $t9, $s3, 60 # t9 = 1 sec + time reduction (negative)
+        blt $s0, $t9, skip_down # if timer <= break, no down movement
     # else:
-    li $s0, 0 # reset game timer
-    jal move_col_d
-    
+        li $s0, 0 # reset game timer
+        jal move_col_d
     skip_down:
-    # 2a. Check for collisions
-	# 2b. Update locations (capsules)
-	# 3. Draw the screen
+
+	# draw the screen
     jal draw_screen
+    j game_unpaused
     
+    game_paused:
+    # when paused: no gravity, no movement, just draw pause screen
+    jal draw_pause_screen
     
-	# 4. Sleep
+    game_unpaused:
+    
+	# sleep
 	li $v0, 32
     li $a0, 16
     syscall
 
-    # 5. Go back to Step 1
+    # loop
     j game_loop
