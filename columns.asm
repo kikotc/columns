@@ -481,8 +481,8 @@ clear_multiple_matches:
     sw $ra, 0($sp) # push $ra onto the stack
     clear_loop:
         jal write_clear_matches # write down the immediate matches
-        jal clear_matches # clear the matches
         beq $v1, $zero, clear_loop_done # if no matches found (indicated by v1), then finish
+        jal clear_matches # clear the matches
         jal gravity # apply gravity
         j clear_loop # loop
     clear_loop_done:
@@ -492,7 +492,7 @@ clear_multiple_matches:
     
 ## clear the immediate matches and set v1 = 1 if pixel clearned
 # 
-# overwrites: t0, t1, t2, t3, t4, t5, a0, a1, v0
+# overwrites: t0, t1, t2, t3, t4, t5, a0, a1, v0, v1
 write_clear_matches:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
@@ -661,8 +661,6 @@ clear_matches:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
-    la $t4, board
-    la $t5, clear
     li $a2, BLACK
     
     li $t3, 0 # y = 0
@@ -694,7 +692,7 @@ clear_matches:
 
 ## apply gravity
 # 
-# overwrites: t0, t1, t2, t3, v0, a0, a1, a2
+# overwrites: t0, t1, t2, t3, t4, t5, v0, a0, a1, a2
 gravity:
     addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
@@ -704,7 +702,7 @@ gravity:
         bge $t2, 6, gravity_col_loop_done # finish loop if current x >= 6
         li $t3, 13 # y = 13
         col_read_loop:
-            blt $t3, 0, col_read_done # finish loop if current x < 0
+            blt $t3, 0, col_read_done # finish loop if current y < 0
             
             li $t5, 0
             move $a0, $t2
@@ -739,9 +737,6 @@ gravity:
                     li $a2, 0
                     jal board_set
             shift_done:
-            move $a0, $t2
-            move $a1, $t3
-            jal board_get
             beq $t5, 1, col_read_loop # shift again without subtracting curr y if pixels has been shifted
             
             addi $t3, $t3, -1 # subtract 1 to the current y
@@ -900,11 +895,33 @@ main:
     jal draw_rectangle
     
     jal init_col
+    
+    li $s0, 0 # game timer
+    li $s1, 0 # time reduction timer
+    li $s3, 0 # time reduction
 
 game_loop:
     # 1a. Check if key has been pressed
     # 1b. Check which key has been pressed
     jal handle_input
+    # auto gravity
+    addi $s0, $s0, 1 # increment game timer
+    addi $s1, $s1, 1 # increment time reduction timer
+    blt $s1, 240, calc_down # if time reduction timer < 4 sec, move on
+    
+    # else:
+    li $s1, 0
+    ble $s3, -48, calc_down # don't reduce time past 0.2 seconds/down (1 - 0.8)
+    addi $s3, $s3, -1
+    
+    calc_down:
+    addi $t9, $s3, 60 # t9 = 1 sec + time reduction (negative)
+    blt $s0, $t9, skip_down # if timer <= break, no down movement
+    # else:
+    li $s0, 0 # reset game timer
+    jal move_col_d
+    
+    skip_down:
     # 2a. Check for collisions
 	# 2b. Update locations (capsules)
 	# 3. Draw the screen
