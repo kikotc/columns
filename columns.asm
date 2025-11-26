@@ -52,6 +52,11 @@ curr_col_c0: .word RED
 curr_col_c1: .word GREEN
 curr_col_c2: .word BLUE
 
+# next column
+next_col_c0: .word RED
+next_col_c1: .word GREEN
+next_col_c2: .word BLUE
+
 # keys
 .eqv KEY_A 0x61
 .eqv KEY_D 0x64
@@ -80,6 +85,8 @@ paused: .word 0
 j main
 
 ## reset the game state in order for retries
+#
+# overwrites: t0, t1, t2, t3, s0, s1, s2
 reset_game_state:
     # clear board and clear
     la $t1, board
@@ -91,12 +98,14 @@ reset_game_state:
         addi $t1, $t1, 4
         sw $zero, 0($t2)
         addi $t2, $t2, 4
-        addi $t0 $t0, -1
+        addi $t0, $t0, -1
         j clear_board_loop
     clear_board_done:
         li $s0, 0 # game timer
         li $s1, 0 # time reduction timer
-        li $s3, 0 # time reduction
+        li $s2, 0 # time reduction
+        la $t3, paused
+        sw $zero, 0($t3)
         jr $ra
 
 ## draws a rectangle
@@ -216,6 +225,36 @@ draw_curr_col:
     lw $ra, 0($sp) # pop $ra from the stack
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
+    
+## draws the next column
+#
+# overwrites: 
+draw_next_col:
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
+    sw $ra, 0($sp) # push $ra onto the stack
+    
+    li $t3, 8 # x position of preview
+    li $t4, 1 # y position of preview
+    move $a0, $t3
+    move $a1, $t4
+    
+    # draw first pixel
+    lw $t0, next_col_c0
+    jal draw_pixel
+    
+    # draw second pixel
+    lw $t0, next_col_c1
+    addi $a1, $a1, 1
+    jal draw_pixel
+    
+    # draw second pixel
+    lw $t0, next_col_c2
+    addi $a1, $a1, 1
+    jal draw_pixel
+    
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    jr $ra
 
 ## initialize the column by setting position and randomizing colors
 #
@@ -236,6 +275,25 @@ init_col:
     jal board_get
     bne $v0, $zero, game_over
     
+    # move next column to current
+    lw $t0, next_col_c0
+    sw $t0, curr_col_c0
+    lw $t0, next_col_c1
+    sw $t0, curr_col_c1
+    lw $t0, next_col_c2
+    sw $t0, curr_col_c2
+    
+    # generate new next column
+    jal randomize_next_col
+    
+    lw $ra, 0($sp) # pop $ra from the stack
+    addi $sp, $sp, 4 # move the stack pointer to the top stack element
+    jr $ra
+
+## randomize colors for the next column
+#
+# overwrites: v0, a0, a1, t0, t1, t2
+randomize_next_col:
     # randomize color 1
     li $v0, 42
     li $a0, 0
@@ -249,7 +307,7 @@ init_col:
     lw $a0, 0($t2)
     
     # set color 1
-    sw $a0, curr_col_c0
+    sw $a0, next_col_c0
     
     # randomize color 2
     li $v0, 42
@@ -264,7 +322,7 @@ init_col:
     lw $a0, 0($t2)
     
     # set color 2
-    sw $a0, curr_col_c1
+    sw $a0, next_col_c1
     
     # randomize color 3
     li $v0, 42
@@ -279,10 +337,8 @@ init_col:
     lw $a0, 0($t2)
     
     # set color 3
-    sw $a0, curr_col_c2
+    sw $a0, next_col_c2
     
-    lw $ra, 0($sp) # pop $ra from the stack
-    addi $sp, $sp, 4 # move the stack pointer to the top stack element
     jr $ra
 
 ## handles input and calls corresponding functions for each key
@@ -332,7 +388,7 @@ handle_input:
     input_P:
         la $t3, paused # load address of paused
         lw $t4, 0($t3) # load paused
-        nor $t4, $t4, 0
+        nor $t4, $t4, $zero
         sw $t4, 0($t3)
         j input_done
     
@@ -825,7 +881,7 @@ clear_matches:
 #
 # overwrites: t0, t1, t2, t3, t4, t5, a0, a1
 color_matches:
-addi $sp, $sp, -4 # move the stack pointer to an empty location
+    addi $sp, $sp, -4 # move the stack pointer to an empty location
     sw $ra, 0($sp) # push $ra onto the stack
     
     li $t3, 0 # y = 0
@@ -1033,14 +1089,15 @@ draw_screen:
     
     # set background to brown
     li $t0, BROWN
-    li $a0, 7
-    li $a1, 0
-    li $a2, 9
-    li $a3, 16
+    li $a0, 9
+    li $a1, 6
+    li $a2, 1
+    li $a3, 4
     jal draw_rectangle
     
     jal draw_board
     jal draw_curr_col
+    jal draw_next_col
     
     lw $ra, 0($sp) # pop $ra from the stack
     addi $sp, $sp, 4 # move the stack pointer to the top stack element
@@ -1050,6 +1107,9 @@ draw_screen:
 #
 # overwrites: t0, t1, t2, t3, a0, a1, a2, a3
 game_over:
+    lw $ra, 0($sp) # pop unpopped ra from init_col
+    addi $sp, $sp, 4
+    
     jal game_over_animation
     
     # draw retry word
@@ -1246,6 +1306,7 @@ main:
     li $a3, 16
     jal draw_rectangle
     
+    jal randomize_next_col
     jal init_col
     
 game_loop:
@@ -1264,10 +1325,10 @@ game_loop:
     
     # else:
         li $s1, 0
-        ble $s3, -48, calc_down # don't reduce time past 0.2 seconds/down (1 - 0.8)
-        addi $s3, $s3, -1
+        ble $s2, -48, calc_down # don't reduce time past 0.2 seconds/down (1 - 0.8)
+        addi $s2, $s2, -1
     calc_down:
-        addi $t9, $s3, 60 # t9 = 1 sec + time reduction (negative)
+        addi $t9, $s2, 60 # t9 = 1 sec + time reduction (negative)
         blt $s0, $t9, skip_down # if timer <= break, no down movement
     # else:
         li $s0, 0 # reset game timer
